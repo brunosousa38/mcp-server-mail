@@ -52,41 +52,85 @@ MCP Server for the Infomaniak Mail API.
 
 ## Networked deployment (Docker Compose + Caddy)
 
-This server now ships with an HTTP transport (Streamable HTTP per the MCP
-spec) and is intended to be exposed on the network behind Caddy with
-automatic Let's Encrypt TLS. **No port is published from the Node container
-directly** — only Caddy is reachable from the outside.
+This server ships with a Streamable HTTP MCP transport and three deployment
+modes managed via a **Makefile**. Pick the one that matches your network:
 
-### Architecture
+| Mode | TLS | Domain needed | Internet needed | Command |
+|---|---|---|---|---|
+| **WAN** | ✅ Let's Encrypt | ✅ public domain | ✅ ports 80+443 | `make up-wan` |
+| **LAN TLS** | ✅ self-signed (Caddy local CA) | ❌ | ❌ | `make up-lan` |
+| **LAN HTTP** | ❌ plain HTTP | ❌ | ❌ | `make up-lan-http` |
 
-```
-   Internet / LAN                 Docker network "internal"
-        │                       ┌────────────┐    ┌────────────┐
-        ├── 80, 443 ──────────► │   caddy    │ ─► │  mcp-mail  │
-                                │ (TLS, ACME)│    │ Express    │
-                                └────────────┘    │ /mcp /healthz
-                                                  └────────────┘
-```
+In all modes the Node container **never publishes a port directly** except
+in LAN HTTP mode. Caddy acts as the sole ingress.
 
-### Quick start
+### Quick start (any mode)
 
 ```bash
-# 1. Configure
-cp .env.example .env
-$EDITOR .env                                          # set MAIL_TOKEN, MCP_PUBLIC_DOMAIN, ACME_EMAIL
-echo "MCP_AUTH_TOKEN=$(openssl rand -hex 32)" >> .env # generate a strong MCP bearer
+# 1. First-time setup — copies .env.example and generates MCP_AUTH_TOKEN
+make setup-env
 
-# 2. Build and start
-docker compose build
-docker compose up -d
-docker compose logs -f
+# 2. Fill in the required secrets
+$EDITOR .env    # MAIL_TOKEN is always required; choose mode-specific vars below
+
+# 3. Start
+make up-wan         # or: make up-lan   or: make up-lan-http
 ```
 
-Caddy will obtain a Let's Encrypt certificate automatically on first start
-(needs ports 80 and 443 reachable from the Internet for the HTTP-01
-challenge). Certificates persist in the `caddy_data` named volume — **do
-not** run `docker compose down -v` casually, or you will hit the ACME rate
-limits on next startup.
+Run `make help` to see all available targets.
+
+### WAN mode
+
+Requires `MCP_PUBLIC_DOMAIN` (e.g. `mcp.example.com`) and `ACME_EMAIL` in `.env`.
+Ports **80 and 443** must be reachable from the Internet for the ACME HTTP-01
+challenge. Certificates persist in the `caddy_data` named volume — **do
+not** run `docker compose down -v`, or you will hit Let's Encrypt rate limits
+on next startup.
+
+```
+   Internet                    Docker network "internal"
+        │                    ┌────────────────┐    ┌───────────────┐
+        ├── 80,443 ─────────►│  caddy (WAN)   │───►│  mcp-mail     │
+                             │  Let's Encrypt │    │  Express :3000│
+                             └────────────────┘    └───────────────┘
+```
+
+### LAN TLS mode
+
+No domain, no Internet. Caddy generates its own local CA and self-signed cert.
+Clients will see a TLS warning until you trust the Caddy CA:
+
+```bash
+make up-lan
+docker compose exec caddy caddy trust   # installs CA on the host machine
+```
+
+Set `MCP_LAN_HOST` in `.env` to control the bind address:
+- `:443` — all interfaces, port 443 (default)
+- `mcp.local` — local hostname (must resolve to the server IP)
+- `192.168.1.10:443` — specific LAN IP
+
+```
+   LAN                        Docker network "internal"
+        │                    ┌──────────────────┐    ┌───────────────┐
+        ├── 443 ────────────►│  caddy (LAN-TLS) │───►│  mcp-mail     │
+                             │  tls internal    │    │  Express :3000│
+                             └──────────────────┘    └───────────────┘
+```
+
+### LAN HTTP mode
+
+Simplest option — no reverse proxy, no TLS. Port `LAN_HTTP_PORT` (default 3000)
+is published directly from the container. The MCP bearer token still enforces
+authentication.
+
+```
+   LAN                        Docker
+        │                    ┌───────────────┐
+        ├── :3000 ──────────►│  mcp-mail     │
+                             │  Express :3000│
+                             └───────────────┘
+```
 
 ### Endpoints
 

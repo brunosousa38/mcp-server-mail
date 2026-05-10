@@ -8,5 +8,6 @@ dist
 *.md
 caddy_data
 caddy_config
-docker-compose.yml
-Caddyfile
+docker-compose*.yml
+Caddyfile*
+Makefile

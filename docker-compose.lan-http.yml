@@ -1,0 +1,14 @@
+# LAN HTTP mode — direct port exposure, no reverse proxy, no TLS.
+# Simplest possible LAN setup. The MCP bearer token still provides auth.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.lan-http.yml up -d
+#
+# The server is reachable at http://<host-ip>:<LAN_HTTP_PORT>/mcp
+# Requires: LAN_HTTP_PORT in .env (default: 3000)
+
+services:
+  mcp-mail:
+    ports:
+      - "${LAN_HTTP_PORT:-3000}:3000"
+    environment:
+      # No proxy in front: trust proxy disabled
+      MCP_TRUST_PROXY: "0"
