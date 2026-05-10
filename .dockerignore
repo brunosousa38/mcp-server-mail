@@ -1,7 +1,12 @@
-dist
+.git
+.github
 node_modules
+dist
 .env
 .env.*
 !.env.example
+*.md
 caddy_data
 caddy_config
+docker-compose.yml
+Caddyfile

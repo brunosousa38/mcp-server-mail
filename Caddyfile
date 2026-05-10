@@ -1,0 +1,49 @@
+{
+	email {$ACME_EMAIL}
+	servers {
+		protocols h1 h2 h3
+	}
+	# To test with Let's Encrypt staging (avoids hitting prod rate limits), uncomment:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$MCP_PUBLIC_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options    "nosniff"
+		X-Frame-Options           "DENY"
+		Referrer-Policy           "no-referrer"
+		Permissions-Policy        "interest-cohort=()"
+		-Server
+	}
+
+	handle /healthz {
+		reverse_proxy mcp-mail:3000
+	}
+
+	handle /mcp* {
+		reverse_proxy mcp-mail:3000 {
+			# Stream Server-Sent Events without buffering
+			flush_interval -1
+			transport http {
+				read_timeout 0s
+				write_timeout 0s
+			}
+			header_up X-Forwarded-For   {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP         {remote_host}
+		}
+	}
+
+	handle {
+		respond "Not Found" 404
+	}
+
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}
