@@ -1,0 +1,47 @@
+{
+	servers {
+		protocols h1 h2 h3
+	}
+	# Caddy generates a local CA and self-signed cert automatically.
+	# No ACME, no domain required. Works with IP addresses and local hostnames.
+}
+
+{$MCP_LAN_HOST} {
+	tls internal
+
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options        "DENY"
+		Referrer-Policy        "no-referrer"
+		-Server
+	}
+
+	handle /healthz {
+		reverse_proxy mcp-mail:3000
+	}
+
+	handle /mcp* {
+		reverse_proxy mcp-mail:3000 {
+			flush_interval -1
+			transport http {
+				read_timeout 0s
+				write_timeout 0s
+			}
+			header_up X-Forwarded-For   {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP         {remote_host}
+		}
+	}
+
+	handle {
+		respond "Not Found" 404
+	}
+
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+}

@@ -23,36 +23,6 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: mcp-caddy
-    restart: unless-stopped
-    depends_on:
-      mcp-mail:
-        condition: service_healthy
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      MCP_PUBLIC_DOMAIN: ${MCP_PUBLIC_DOMAIN}
-      ACME_EMAIL: ${ACME_EMAIL}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - internal
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 networks:
   internal:
     driver: bridge
-
-volumes:
-  caddy_data:
-  caddy_config:

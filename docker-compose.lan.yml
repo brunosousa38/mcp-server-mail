@@ -1,0 +1,41 @@
+# LAN mode — private network with Caddy using a local self-signed certificate.
+# No domain, no Let's Encrypt. Caddy generates its own CA automatically.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
+#
+# TLS trust: browsers/clients will warn about the cert. To silence this:
+#   docker compose exec caddy caddy trust     # installs the CA on the host
+# Or export the CA cert from the caddy_data volume and install it on your devices.
+#
+# Requires: MCP_LAN_HOST in .env (e.g. ":443" or "mcp.local" or your LAN IP)
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: mcp-caddy-lan
+    restart: unless-stopped
+    depends_on:
+      mcp-mail:
+        condition: service_healthy
+    ports:
+      - "${LAN_HTTPS_PORT:-443}:443"
+      - "${LAN_HTTPS_PORT:-443}:443/udp"
+    environment:
+      MCP_LAN_HOST: ${MCP_LAN_HOST:-:443}
+    volumes:
+      - ./Caddyfile.lan:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  internal:
+
+volumes:
+  caddy_data:
+  caddy_config:

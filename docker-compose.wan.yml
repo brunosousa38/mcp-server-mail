@@ -1,0 +1,38 @@
+# WAN mode — public Internet with automatic Let's Encrypt TLS via Caddy.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.wan.yml up -d
+# Requires: MCP_PUBLIC_DOMAIN and ACME_EMAIL in .env
+# Ports 80 and 443 must be reachable from the Internet for the ACME HTTP-01 challenge.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: mcp-caddy-wan
+    restart: unless-stopped
+    depends_on:
+      mcp-mail:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      MCP_PUBLIC_DOMAIN: ${MCP_PUBLIC_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  internal:
+
+volumes:
+  caddy_data:
+  caddy_config:
