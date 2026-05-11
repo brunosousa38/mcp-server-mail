@@ -37,7 +37,11 @@ export const httpLogger = pinoHttp({
             return {
                 id: req.id,
                 method: req.method,
-                url: req.url,
+                // Mask token embedded in URL path (/mcp/<token>/...)
+                url: (req.url as string).replace(
+                    /^(\/mcp\/)([^/?]+)(\/?.*)$/,
+                    "$1[token]$3",
+                ),
                 remoteAddress: req.remoteAddress,
             };
         },

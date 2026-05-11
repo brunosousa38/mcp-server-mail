@@ -5,7 +5,7 @@ import helmet from "helmet";
 import {StreamableHTTPServerTransport} from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {isInitializeRequest} from "@modelcontextprotocol/sdk/types.js";
 import type {AppConfig} from "./config.js";
-import {bearerAuthMiddleware} from "./auth.js";
+import {bearerAuthMiddleware, urlTokenAuthMiddleware} from "./auth.js";
 import {buildGeneralRateLimit, buildSendEmailLimiter} from "./rate-limit.js";
 import {buildServer} from "./mcp-server.js";
 import type {MailClient} from "./mail-client.js";
@@ -52,12 +52,9 @@ export function createApp(
     const transports = new Map<string, StreamableHTTPServerTransport>();
     const sendEmailLimiter = buildSendEmailLimiter(config.sendRateLimitPerMin);
 
-    const mcpRouter = express.Router();
-    mcpRouter.use(buildGeneralRateLimit(config.rateLimitPerMin));
-    mcpRouter.use(bearerAuthMiddleware(config.mcpAuthToken));
-    mcpRouter.use(express.json({limit: "1mb"}));
+    // ── Shared MCP request handlers ────────────────────────────────────────────
 
-    mcpRouter.post("/", async (req: Request, res: Response) => {
+    const handlePost = async (req: Request, res: Response) => {
         const headerSessionId = req.header("mcp-session-id");
         let transport = headerSessionId
             ? transports.get(headerSessionId)
@@ -70,8 +67,7 @@ export function createApp(
                         jsonrpc: "2.0",
                         error: {
                             code: -32000,
-                            message:
-                                "No valid session — call initialize first",
+                            message: "No valid session — call initialize first",
                         },
                         id: null,
                     });
@@ -112,9 +108,9 @@ export function createApp(
                 });
             }
         }
-    });
+    };
 
-    const handleSessionRequest = async (req: Request, res: Response) => {
+    const handleSession = async (req: Request, res: Response) => {
         const sessionId = req.header("mcp-session-id");
         const transport = sessionId ? transports.get(sessionId) : undefined;
         if (!transport) {
@@ -131,10 +127,34 @@ export function createApp(
         }
     };
 
-    mcpRouter.get("/", handleSessionRequest);
-    mcpRouter.delete("/", handleSessionRequest);
+    const jsonBody = express.json({limit: "1mb"});
+    const rateLimit = buildGeneralRateLimit(config.rateLimitPerMin);
 
+    // ── Route 1: /mcp — header-based Bearer auth ───────────────────────────────
+
+    const mcpRouter = express.Router();
+    mcpRouter.use(rateLimit);
+    mcpRouter.use(bearerAuthMiddleware(config.mcpAuthToken));
+    mcpRouter.use(jsonBody);
+    mcpRouter.post("/", handlePost);
+    mcpRouter.get("/", handleSession);
+    mcpRouter.delete("/", handleSession);
     app.use("/mcp", mcpRouter);
+
+    // ── Route 2: /mcp/:token — URL-embedded token auth ────────────────────────
+    // Use this URL directly in Claude's connector UI: https://domain/mcp/TOKEN/
+    // The token is masked in logs. Note: the token will appear in browser
+    // history and HTTP access logs on intermediate proxies — prefer header auth
+    // when your client supports it.
+
+    const urlTokenRouter = express.Router({mergeParams: true});
+    urlTokenRouter.use(rateLimit);
+    urlTokenRouter.use(urlTokenAuthMiddleware(config.mcpAuthToken));
+    urlTokenRouter.use(jsonBody);
+    urlTokenRouter.post("/", handlePost);
+    urlTokenRouter.get("/", handleSession);
+    urlTokenRouter.delete("/", handleSession);
+    app.use("/mcp/:token", urlTokenRouter);
 
     app.use((_req, res) => {
         res.status(404).json({error: "Not Found"});
