@@ -279,6 +279,87 @@ describe("MailClient", () => {
         assert.deepStrictEqual(draftBody.bcc, [{ name: "", email: "bcc@test.com" }]);
     });
 
+    it("sendEmail ignores blank recipient entries", async () => {
+        const client = new MailClient("mock-token");
+
+        fetchMock.enqueue({
+            result: "success",
+            data: [
+                {
+                    uuid: "mb-uuid",
+                    hosting_id: 123,
+                    mailbox: "test",
+                    email: "test@test.com",
+                },
+            ],
+        });
+        await client.init();
+
+        fetchMock.enqueue({
+            result: "success",
+            data: { uuid: "draft-uuid", uid: "draft-uid" },
+        });
+        fetchMock.enqueue({
+            result: "success",
+            data: { etop: "2024-01-01T00:00:00+00:00" },
+        });
+
+        await client.sendEmail(
+            "a@test.com, , b@test.com,",
+            "Subject",
+            "Body",
+            ", cc@test.com,",
+        );
+
+        const calls = fetchMock.calls();
+        const draftBody = JSON.parse(calls[1].options.body);
+        assert.deepStrictEqual(draftBody.to, [
+            { name: "", email: "a@test.com" },
+            { name: "", email: "b@test.com" },
+        ]);
+        assert.deepStrictEqual(draftBody.cc, [{ name: "", email: "cc@test.com" }]);
+    });
+
+    it("createDraft escapes plain text body before wrapping it in HTML", async () => {
+        const client = new MailClient("mock-token");
+
+        fetchMock.enqueue({
+            result: "success",
+            data: [
+                {
+                    uuid: "mb-uuid",
+                    hosting_id: 123,
+                    mailbox: "test",
+                    email: "test@test.com",
+                },
+            ],
+        });
+        await client.init();
+
+        fetchMock.enqueue({
+            result: "success",
+            data: { uuid: "draft-uuid", uid: "draft-uid" },
+        });
+
+        await client.createDraft(
+            "to@test.com",
+            "Escaped body",
+            "<script>alert('x')</script>\nTom & Jerry \"quote\"",
+        );
+
+        const calls = fetchMock.calls();
+        const draftBody = JSON.parse(calls[1].options.body);
+        assert.ok(
+            draftBody.body.includes(
+                "&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;<br>Tom &amp; Jerry &quot;quote&quot;",
+            ),
+        );
+        assert.ok(
+            !draftBody.body.includes("<script>"),
+            "plain text body should not be interpreted as HTML",
+        );
+    });
+
     it("uploadAttachment sets correct MIME type", async () => {
         const client = new MailClient("mock-token");
 

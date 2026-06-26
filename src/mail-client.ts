@@ -18,14 +18,33 @@ export class MailClient {
 
     private parseRecipients(recipientString?: string): any[] | null {
         if (!recipientString) return null;
-        return recipientString.split(",").map((email) => ({
-            name: "",
-            email: email.trim(),
-        }));
+        const recipients = recipientString
+            .split(",")
+            .map((email) => email.trim())
+            .filter(Boolean)
+            .map((email) => ({
+                name: "",
+                email,
+            }));
+
+        return recipients.length > 0 ? recipients : null;
+    }
+
+    private escapeHtml(text: string): string {
+        const replacements: Record<string, string> = {
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            "\"": "&quot;",
+            "'": "&#39;",
+        };
+
+        return text.replace(/[&<>"']/g, (char) => replacements[char]);
     }
 
     private createHtmlBody(body: string): string {
-        return `<html><body><div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 14px;">${body.replace(/\n/g, "<br>")}</div></body></html>`;
+        const escapedBody = this.escapeHtml(body).replace(/\n/g, "<br>");
+        return `<html><body><div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 14px;">${escapedBody}</div></body></html>`;
     }
 
     private async apiRequest(path: string, options: RequestInit = {}): Promise<any> {
