@@ -4,11 +4,15 @@ import {McpServer} from "@modelcontextprotocol/sdk/server/mcp.js";
 import {z} from "zod";
 import {StdioServerTransport} from "@modelcontextprotocol/sdk/server/stdio.js";
 import {MailClient} from "./mail-client.js";
+import {createRequire} from "node:module";
+
+const require = createRequire(import.meta.url);
+const {version} = require("../package.json") as {version: string};
 
 const server = new McpServer(
     {
         name: "Infomaniak Mail MCP Server",
-        version: "1.1.2",
+        version,
     },
     {
         capabilities: {

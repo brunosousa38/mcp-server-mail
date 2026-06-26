@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const entry = path.join(__dirname, "..", "dist", "index.js");
+const packageJson = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "package.json"), "utf8"),
+);
 
 // Launches dist/index.js the way `npx` / MCP clients do: through a bin symlink,
 // then drives a minimal MCP `initialize` handshake over stdio and resolves with
@@ -78,5 +81,6 @@ describe("server startup", () => {
             response.result.serverInfo,
             "initialize result should include serverInfo",
         );
+        assert.strictEqual(response.result.serverInfo.version, packageJson.version);
     });
 });
