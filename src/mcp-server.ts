@@ -1,131 +1,173 @@
-import {createHash} from "node:crypto";
 import {McpServer} from "@modelcontextprotocol/sdk/server/mcp.js";
 import {z} from "zod";
-import type {MailClient} from "./mail-client.js";
-import {logger} from "./logger.js";
-import {TokenBucket} from "./rate-limit.js";
+import type {AppConfig} from "./config.js";
+import {
+    listEmails,
+    listFolders,
+    markEmail,
+    readEmail,
+    searchEmails,
+} from "./imap-client.js";
+import {sendEmail} from "./smtp-client.js";
 
-export interface BuildServerDeps {
-    mailClient: MailClient;
-    sendEmailLimiter: TokenBucket;
+function textResult(value: unknown) {
+    return {
+        content: [
+            {type: "text" as const, text: JSON.stringify(value, null, 2)},
+        ],
+    };
 }
 
-function hashForAudit(value: string): string {
-    return createHash("sha256").update(value).digest("hex").slice(0, 16);
+function errorResult(err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+        content: [{type: "text" as const, text: `Error: ${message}`}],
+        isError: true as const,
+    };
 }
 
-export function buildServer(deps: BuildServerDeps): McpServer {
-    const {mailClient, sendEmailLimiter} = deps;
-
+export function buildServer(config: AppConfig): McpServer {
     const server = new McpServer(
         {
-            name: "Infomaniak Mail MCP Server",
-            version: "0.1.0",
+            name: "Mail MCP Server (IMAP/SMTP)",
+            version: "1.0.0",
         },
         {
             capabilities: {
-                completions: {},
-                prompts: {},
-                resources: {},
                 tools: {},
             },
         },
     );
 
     server.tool(
-        "mail_list_mailboxes",
-        "List all mailboxes in the Infomaniak account",
+        "list_folders",
+        "List all folders of the mail account with message and unseen counts. Useful to discover exact folder paths before listing or searching emails.",
         {},
         async () => {
-            const mailboxes = await mailClient.listMailboxes();
-            return {
-                content: [
-                    {type: "text", text: JSON.stringify(mailboxes, null, 2)},
-                ],
-            };
+            try {
+                return textResult(await listFolders(config));
+            } catch (err) {
+                return errorResult(err);
+            }
         },
     );
 
     server.tool(
-        "mail_list_folders",
-        "List all folders in a mailbox",
+        "list_emails",
+        "List recent emails in a folder, most recent first, with summary metadata (uid, from, to, subject, date, read status, size). Use read_email with the uid to get the full body.",
         {
-            mailbox_uuid: z
+            folder: z
                 .string()
-                .describe("Mailbox UUID (optional, uses primary if omitted)")
-                .optional(),
-        },
-        async ({mailbox_uuid}) => {
-            const uuid = mailbox_uuid || mailClient.getMailboxUuid();
-            const folders = await mailClient.listFolders(uuid);
-            return {
-                content: [
-                    {type: "text", text: JSON.stringify(folders, null, 2)},
-                ],
-            };
-        },
-    );
-
-    server.tool(
-        "mail_list_emails",
-        "List emails in a folder",
-        {
-            folder_id: z.string().describe("Folder ID (e.g., INBOX folder id)"),
-            mailbox_uuid: z
-                .string()
-                .describe("Mailbox UUID (optional, uses primary if omitted)")
+                .describe('Folder path, e.g. "INBOX" (default) or "Sent"')
                 .optional(),
             limit: z
                 .number()
-                .describe("Maximum number of emails to return")
-                .default(50),
-            offset: z.number().describe("Offset for pagination").default(0),
-        },
-        async ({folder_id, mailbox_uuid, limit, offset}) => {
-            const uuid = mailbox_uuid || mailClient.getMailboxUuid();
-            const emails = await mailClient.listEmails(
-                uuid,
-                folder_id,
-                limit,
-                offset,
-            );
-            return {
-                content: [
-                    {type: "text", text: JSON.stringify(emails, null, 2)},
-                ],
-            };
-        },
-    );
-
-    server.tool(
-        "mail_read_email",
-        "Read a specific email",
-        {
-            folder_id: z.string().describe("Folder ID containing the email"),
-            message_id: z.string().describe("Message ID or UID"),
-            mailbox_uuid: z
-                .string()
-                .describe("Mailbox UUID (optional, uses primary if omitted)")
+                .int()
+                .describe("Maximum number of emails to return (default 20, max 100)")
+                .optional(),
+            offset: z
+                .number()
+                .int()
+                .describe(
+                    "Number of most recent emails to skip, for pagination (default 0)",
+                )
                 .optional(),
         },
-        async ({folder_id, message_id, mailbox_uuid}) => {
-            const uuid = mailbox_uuid || mailClient.getMailboxUuid();
-            const email = await mailClient.readEmail(
-                uuid,
-                folder_id,
-                message_id,
-            );
-            return {
-                content: [
-                    {type: "text", text: JSON.stringify(email, null, 2)},
-                ],
-            };
+        async ({folder, limit, offset}) => {
+            try {
+                return textResult(
+                    await listEmails(
+                        config,
+                        folder ?? "INBOX",
+                        limit ?? 20,
+                        offset ?? 0,
+                    ),
+                );
+            } catch (err) {
+                return errorResult(err);
+            }
         },
     );
 
     server.tool(
-        "mail_send_email",
-        "Send an email",
+        "read_email",
+        "Read the full content of one email by UID: subject, sender, recipients, date, Message-ID, plain text body, and attachment metadata (names and sizes only, no attachment content).",
+        {
+            folder: z
+                .string()
+                .describe('Folder path (default "INBOX")')
+                .optional(),
+            uid: z
+                .number()
+                .int()
+                .describe("Email UID, as returned by list_emails or search_emails"),
+        },
+        async ({folder, uid}) => {
+            try {
+                return textResult(
+                    await readEmail(config, folder ?? "INBOX", uid),
+                );
+            } catch (err) {
+                return errorResult(err);
+            }
+        },
+    );
+
+    server.tool(
+        "search_emails",
+        "Search emails in a folder by sender, recipient, subject, body text, date range and/or unread status. Returns the same summary format as list_emails.",
+        {
+            folder: z
+                .string()
+                .describe('Folder path (default "INBOX")')
+                .optional(),
+            from: z.string().describe("Filter by sender").optional(),
+            to: z.string().describe("Filter by recipient").optional(),
+            subject: z
+                .string()
+                .describe("Filter by subject substring")
+                .optional(),
+            text: z
+                .string()
+                .describe("Filter by text contained in the body")
+                .optional(),
+            since: z
+                .string()
+                .describe("Only emails on or after this date (YYYY-MM-DD)")
+                .optional(),
+            before: z
+                .string()
+                .describe("Only emails before this date (YYYY-MM-DD)")
+                .optional(),
+            unseen: z
+                .boolean()
+                .describe("Only return unread emails")
+                .optional(),
+            limit: z
+                .number()
+                .int()
+                .describe("Maximum number of results (default 20, max 100)")
+                .optional(),
+        },
+        async ({folder, from, to, subject, text, since, before, unseen, limit}) => {
+            try {
+                return textResult(
+                    await searchEmails(
+                        config,
+                        folder ?? "INBOX",
+                        {from, to, subject, text, since, before, unseen},
+                        limit ?? 20,
+                    ),
+                );
+            } catch (err) {
+                return errorResult(err);
+            }
+        },
+    );
+
+    server.tool(
+        "send_email",
+        "Send a plain-text email via SMTP. To reply within an existing thread, pass in_reply_to with the Message-ID of the original email (see read_email output).",
         {
             to: z
                 .string()
@@ -140,36 +182,51 @@ export function buildServer(deps: BuildServerDeps): McpServer {
                 .string()
                 .describe("BCC recipient(s), comma-separated")
                 .optional(),
+            in_reply_to: z
+                .string()
+                .describe(
+                    "Message-ID of the email being replied to, to keep the thread",
+                )
+                .optional(),
         },
-        async ({to, subject, body, cc, bcc}) => {
-            if (!sendEmailLimiter.tryConsume()) {
-                logger.warn(
-                    {tool: "mail_send_email"},
-                    "send-email rate limit exceeded",
+        async ({to, subject, body, cc, bcc, in_reply_to}) => {
+            try {
+                return textResult(
+                    await sendEmail(config, {
+                        to,
+                        subject,
+                        body,
+                        cc,
+                        bcc,
+                        inReplyTo: in_reply_to,
+                    }),
                 );
-                throw new Error(
-                    "Rate limit exceeded for mail_send_email. Try again shortly.",
-                );
+            } catch (err) {
+                return errorResult(err);
             }
+        },
+    );
 
-            logger.info(
-                {
-                    tool: "mail_send_email",
-                    to_hash: hashForAudit(to),
-                    subject_hash: hashForAudit(subject),
-                    has_cc: Boolean(cc),
-                    has_bcc: Boolean(bcc),
-                    body_length: body.length,
-                },
-                "send_email invoked",
-            );
-
-            const result = await mailClient.sendEmail(to, subject, body, cc, bcc);
-            return {
-                content: [
-                    {type: "text", text: JSON.stringify(result, null, 2)},
-                ],
-            };
+    server.tool(
+        "mark_email",
+        "Mark an email as read or unread.",
+        {
+            folder: z
+                .string()
+                .describe('Folder path (default "INBOX")')
+                .optional(),
+            uid: z.number().int().describe("Email UID"),
+            seen: z
+                .boolean()
+                .describe("true to mark as read, false to mark as unread"),
+        },
+        async ({folder, uid, seen}) => {
+            try {
+                await markEmail(config, folder ?? "INBOX", uid, seen);
+                return textResult({ok: true, uid, seen});
+            } catch (err) {
+                return errorResult(err);
+            }
         },
     );
 

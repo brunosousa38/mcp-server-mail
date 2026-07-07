@@ -1,0 +1,19 @@
+{
+  "mcpAuthToken": "REMPLACER_PAR_LE_RESULTAT_DE_openssl_rand_-hex_32",
+  "imap": {
+    "host": "mail.infomaniak.com",
+    "port": 993,
+    "user": "vous@example.com",
+    "password": "votre-mot-de-passe",
+    "encryption": "ssl"
+  },
+  "smtp": {
+    "host": "mail.infomaniak.com",
+    "port": 465,
+    "user": "vous@example.com",
+    "password": "votre-mot-de-passe",
+    "encryption": "ssl"
+  },
+  "mailFrom": "vous@example.com",
+  "mailFromName": "Votre Nom"
+}

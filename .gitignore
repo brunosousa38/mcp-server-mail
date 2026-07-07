@@ -3,5 +3,6 @@ node_modules
 .env
 .env.*
 !.env.example
-caddy_data
-caddy_config
+config.json
+php-ovh/config.local.php
+.netlify

@@ -1,46 +1,33 @@
 import {createHash, timingSafeEqual} from "node:crypto";
-import type {RequestHandler} from "express";
-import {logger} from "./logger.js";
 
-export function bearerAuthMiddleware(expectedToken: string): RequestHandler {
+/**
+ * Vérifie le token d'authentification présenté par la requête, soit via le
+ * header `Authorization: Bearer <token>`, soit via le paramètre de query
+ * `?token=<token>` (indispensable : les connecteurs personnalisés de
+ * claude.ai / Claude Desktop ne permettent pas d'en-têtes custom).
+ *
+ * Comparaison en temps constant sur des digests sha256, comme dans
+ * l'implémentation précédente.
+ */
+export function verifyToken(req: Request, expectedToken: string): boolean {
+    const presented = extractToken(req);
+    if (!presented) return false;
+
     const expectedDigest = createHash("sha256").update(expectedToken).digest();
+    const presentedDigest = createHash("sha256").update(presented).digest();
 
-    return (req, res, next) => {
-        const header = req.header("authorization") ?? "";
-        const match = /^Bearer\s+(.+)$/i.exec(header);
+    return timingSafeEqual(expectedDigest, presentedDigest);
+}
 
-        if (!match) {
-            res.setHeader("WWW-Authenticate", 'Bearer realm="mcp"');
-            logger.warn(
-                {ip: req.ip, path: req.path},
-                "Rejected request without bearer token",
-            );
-            res.status(401).json({
-                jsonrpc: "2.0",
-                error: {code: -32001, message: "Unauthorized"},
-                id: null,
-            });
-            return;
-        }
+function extractToken(req: Request): string | null {
+    const authHeader = req.headers.get("authorization") ?? "";
+    const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+    if (match) return match[1];
 
-        const presentedDigest = createHash("sha256")
-            .update(match[1])
-            .digest();
-
-        if (!timingSafeEqual(expectedDigest, presentedDigest)) {
-            res.setHeader("WWW-Authenticate", 'Bearer realm="mcp"');
-            logger.warn(
-                {ip: req.ip, path: req.path},
-                "Rejected request with invalid bearer token",
-            );
-            res.status(401).json({
-                jsonrpc: "2.0",
-                error: {code: -32001, message: "Unauthorized"},
-                id: null,
-            });
-            return;
-        }
-
-        next();
-    };
+    try {
+        const url = new URL(req.url);
+        return url.searchParams.get("token");
+    } catch {
+        return null;
+    }
 }

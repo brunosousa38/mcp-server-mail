@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Serveur MCP Mail (IMAP/SMTP)</title>
+    <style>
+        :root {
+            color-scheme: light dark;
+        }
+        body {
+            margin: 0;
+            padding: 2rem 1rem;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            background: #f6f7f9;
+            color: #1f2933;
+        }
+        main {
+            max-width: 640px;
+            margin: 0 auto;
+            background: #ffffff;
+            border: 1px solid #e0e4e8;
+            border-radius: 10px;
+            padding: 2rem;
+        }
+        h1 {
+            margin-top: 0;
+            font-size: 1.5rem;
+        }
+        code {
+            background: #eef1f4;
+            border-radius: 4px;
+            padding: 0.15em 0.4em;
+            font-size: 0.95em;
+        }
+        .endpoint {
+            background: #eef1f4;
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            margin: 1rem 0;
+        }
+        footer {
+            margin-top: 1.5rem;
+            font-size: 0.85rem;
+            color: #6b7480;
+        }
+        @media (prefers-color-scheme: dark) {
+            body { background: #14181d; color: #dfe4e9; }
+            main { background: #1c2229; border-color: #2c343d; }
+            code, .endpoint { background: #262e37; }
+            footer { color: #8a94a0; }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Serveur MCP Mail (IMAP/SMTP)</h1>
+    <p>
+        Ce site héberge un serveur <strong>MCP</strong> (Model Context Protocol)
+        qui expose une boîte mail via IMAP et SMTP : lister les dossiers, lire,
+        rechercher, envoyer et marquer des emails. Il est conçu pour être connecté
+        à Claude (claude.ai, Claude Desktop) ou à tout client MCP compatible HTTP.
+    </p>
+    <p>L'endpoint MCP est&nbsp;:</p>
+    <div class="endpoint">POST /mcp</div>
+    <p>
+        L'accès est protégé par un token, à fournir soit dans l'en-tête
+        <code>Authorization: Bearer &lt;token&gt;</code>, soit en paramètre
+        d'URL <code>?token=&lt;token&gt;</code> (utile pour les connecteurs
+        personnalisés qui ne permettent pas d'en-têtes personnalisés).
+    </p>
+    <p>
+        Pour la configuration (serveurs IMAP/SMTP, déploiement Netlify) et la
+        liste détaillée des outils disponibles, consultez le fichier
+        <code>README.md</code> du dépôt.
+    </p>
+    <footer>Serveur MCP Mail — IMAP/SMTP générique, déployé sur Netlify Functions.</footer>
+</main>
+</body>
+</html>

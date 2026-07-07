@@ -1,0 +1,10 @@
+[build]
+  publish = "public"
+  command = ""
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  # config.json est gitignoré, mais il est embarqué s'il existe
+  # au moment d'un déploiement via la CLI Netlify (netlify deploy).
+  included_files = ["config.json", "config.sample.json"]
