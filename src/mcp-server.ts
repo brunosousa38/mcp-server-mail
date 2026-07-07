@@ -63,11 +63,14 @@ export function buildServer(config: AppConfig): McpServer {
             limit: z
                 .number()
                 .int()
+                .min(1)
+                .max(100)
                 .describe("Maximum number of emails to return (default 20, max 100)")
                 .optional(),
             offset: z
                 .number()
                 .int()
+                .min(0)
                 .describe(
                     "Number of most recent emails to skip, for pagination (default 0)",
                 )
@@ -100,6 +103,7 @@ export function buildServer(config: AppConfig): McpServer {
             uid: z
                 .number()
                 .int()
+                .positive()
                 .describe("Email UID, as returned by list_emails or search_emails"),
         },
         async ({folder, uid}) => {
@@ -133,10 +137,12 @@ export function buildServer(config: AppConfig): McpServer {
                 .optional(),
             since: z
                 .string()
+                .date()
                 .describe("Only emails on or after this date (YYYY-MM-DD)")
                 .optional(),
             before: z
                 .string()
+                .date()
                 .describe("Only emails before this date (YYYY-MM-DD)")
                 .optional(),
             unseen: z
@@ -146,6 +152,8 @@ export function buildServer(config: AppConfig): McpServer {
             limit: z
                 .number()
                 .int()
+                .min(1)
+                .max(100)
                 .describe("Maximum number of results (default 20, max 100)")
                 .optional(),
         },
@@ -215,7 +223,7 @@ export function buildServer(config: AppConfig): McpServer {
                 .string()
                 .describe('Folder path (default "INBOX")')
                 .optional(),
-            uid: z.number().int().describe("Email UID"),
+            uid: z.number().int().positive().describe("Email UID"),
             seen: z
                 .boolean()
                 .describe("true to mark as read, false to mark as unread"),
