@@ -1,253 +1,138 @@
-# Mail MCP Server
+# Serveur MCP Mail (IMAP/SMTP)
 
-MCP Server for the Infomaniak Mail API.
+Un serveur [MCP](https://modelcontextprotocol.io) qui permet à Claude de lire (IMAP) et d'envoyer (SMTP) des emails depuis n'importe quelle boîte mail classique, en deux variantes au choix : **Netlify** (TypeScript serverless) ou **PHP pur** pour hébergement mutualisé (OVH ou autre).
 
-## Tools
+## Les 6 outils exposés
 
-1. `mail_list_mailboxes`
-   - List all mailboxes in your Infomaniak account
-   - Returns: List of mailboxes with uuid, email, and mailbox name
+| Outil | Description | Arguments principaux |
+|---|---|---|
+| `list_folders` | Liste les dossiers IMAP avec compteurs de messages et de non-lus | — |
+| `list_emails` | Liste les derniers emails d'un dossier (plus récent en premier) : uid, expéditeur, sujet, date, lu/non-lu, taille | `folder` (défaut `INBOX`), `limit` (défaut 20, max 100), `offset` |
+| `read_email` | Lit un email complet par UID : en-têtes, corps texte décodé, métadonnées des pièces jointes | `folder`, `uid` (requis) |
+| `search_emails` | Recherche dans un dossier (critères combinés en ET) | `folder`, `from`, `to`, `subject`, `text`, `since`/`before` (YYYY-MM-DD), `unseen`, `limit` |
+| `send_email` | Envoie un email texte brut via SMTP ; `in_reply_to` permet de répondre dans un fil existant | `to` (requis), `subject` (requis), `body` (requis), `cc`, `bcc`, `in_reply_to` |
+| `mark_email` | Marque un email comme lu ou non lu | `folder`, `uid` (requis), `seen` (requis) |
 
-2. `mail_list_folders`
-   - List all folders in a mailbox
-   - Required inputs:
-     - `mailbox_uuid` (string, optional): Mailbox UUID (uses primary if omitted)
-   - Returns: List of folders with id, name, path, role, unread/total counts
+## Configuration
 
-3. `mail_list_emails`
-   - List emails in a folder
-   - Required inputs:
-     - `folder_id` (string): Folder ID
-   - Optional inputs:
-     - `mailbox_uuid` (string): Mailbox UUID
-     - `limit` (number): Maximum emails to return (default: 50)
-     - `offset` (number): Pagination offset (default: 0)
-   - Returns: List of email threads with subject, from, date, preview
+Les deux variantes se configurent de la même façon : **un fichier de configuration** et/ou **des variables d'environnement** (les variables d'environnement sont prioritaires).
 
-4. `mail_read_email`
-   - Read a specific email
-   - Required inputs:
-     - `folder_id` (string): Folder ID containing the email
-     - `message_id` (string): Message ID or UID
-   - Optional inputs:
-     - `mailbox_uuid` (string): Mailbox UUID
-   - Returns: Full email with subject, from, to, body, html, headers
+- **Netlify** : copiez `config.sample.json` en `config.json` à la racine (gitignoré) et remplissez-le, ou définissez les variables d'environnement dans l'interface Netlify.
+- **PHP / OVH** : copiez `php-ovh/config.sample.php` en `php-ovh/config.local.php` (gitignoré) et remplissez-le.
 
-5. `mail_send_email`
-   - Send an email
-   - Required inputs:
-     - `to` (string): Recipient email address(es), comma-separated
-     - `subject` (string): Email subject
-     - `body` (string): Email body (plain text)
-   - Optional inputs:
-     - `cc` (string): CC recipient(s), comma-separated
-     - `bcc` (string): BCC recipient(s), comma-separated
-   - Returns: Send confirmation with timestamp
-
-## Setup
-
-1. Create a token linked to your user:
-    - Visit the [API Token page](https://manager.infomaniak.com/v3/ng/accounts/token/list)
-    - Choose "workspace:mail" scopes
-
-## Networked deployment (Docker Compose + Caddy)
-
-This server ships with a Streamable HTTP MCP transport and three deployment
-modes managed via a **Makefile**. Pick the one that matches your network:
-
-| Mode | TLS | Domain needed | Internet needed | Command |
-|---|---|---|---|---|
-| **WAN** | ✅ Let's Encrypt | ✅ public domain | ✅ ports 80+443 | `make up-wan` |
-| **LAN TLS** | ✅ self-signed (Caddy local CA) | ❌ | ❌ | `make up-lan` |
-| **LAN HTTP** | ❌ plain HTTP | ❌ | ❌ | `make up-lan-http` |
-
-In all modes the Node container **never publishes a port directly** except
-in LAN HTTP mode. Caddy acts as the sole ingress.
-
-### Quick start (any mode)
+Générez le token d'authentification (32 caractères minimum) :
 
 ```bash
-# 1. First-time setup — copies .env.example and generates MCP_AUTH_TOKEN
-make setup-env
-
-# 2. Fill in the required secrets
-$EDITOR .env    # MAIL_TOKEN is always required; choose mode-specific vars below
-
-# 3. Start
-make up-wan         # or: make up-lan   or: make up-lan-http
+openssl rand -hex 32
 ```
 
-Run `make help` to see all available targets.
+### Variables d'environnement
 
-### WAN mode
+| Variable | Description | Défaut |
+|---|---|---|
+| `MCP_AUTH_TOKEN` | Token d'authentification du serveur MCP (≥ 32 caractères) | — (requis) |
+| `IMAP_HOST` | Serveur IMAP | — (requis) |
+| `IMAP_PORT` | Port IMAP | `993` |
+| `IMAP_USER` | Identifiant IMAP (l'adresse email en général) | — (requis) |
+| `IMAP_PASSWORD` | Mot de passe IMAP | — (requis) |
+| `IMAP_ENCRYPTION` | `ssl` \| `starttls` \| `none` | `ssl` |
+| `SMTP_HOST` | Serveur SMTP | — (requis) |
+| `SMTP_PORT` | Port SMTP | `465` |
+| `SMTP_USER` | Identifiant SMTP | reprend `IMAP_USER` |
+| `SMTP_PASSWORD` | Mot de passe SMTP | reprend `IMAP_PASSWORD` |
+| `SMTP_ENCRYPTION` | `ssl` \| `starttls` \| `none` | `ssl` |
+| `MAIL_FROM` | Adresse d'expéditeur | reprend `IMAP_USER` |
+| `MAIL_FROM_NAME` | Nom d'expéditeur affiché | partie locale de `MAIL_FROM` |
 
-Requires `MCP_PUBLIC_DOMAIN` (e.g. `mcp.example.com`) and `ACME_EMAIL` in `.env`.
-Ports **80 and 443** must be reachable from the Internet for the ACME HTTP-01
-challenge. Certificates persist in the `caddy_data` named volume — **do
-not** run `docker compose down -v`, or you will hit Let's Encrypt rate limits
-on next startup.
+### Exemples de serveurs mail
 
-```
-   Internet                    Docker network "internal"
-        │                    ┌────────────────┐    ┌───────────────┐
-        ├── 80,443 ─────────►│  caddy (WAN)   │───►│  mcp-mail     │
-                             │  Let's Encrypt │    │  Express :3000│
-                             └────────────────┘    └───────────────┘
-```
+| Fournisseur | IMAP | SMTP | Remarque |
+|---|---|---|---|
+| Infomaniak | `mail.infomaniak.com`, port 993, `ssl` | `mail.infomaniak.com`, port 465, `ssl` | |
+| OVH | `ssl0.ovh.net`, port 993, `ssl` | `ssl0.ovh.net`, port 465, `ssl` | |
+| Gmail | `imap.gmail.com`, port 993, `ssl` | `smtp.gmail.com`, port 465, `ssl` | Nécessite un [mot de passe d'application](https://support.google.com/accounts/answer/185833) |
 
-### LAN TLS mode
+> ⚠️ **Proton Mail** n'expose pas d'IMAP/SMTP directement : il faut Proton Bridge, qui tourne en local sur votre machine. C'est incompatible avec un déploiement Netlify ou un hébergement mutualisé — ces variantes ne peuvent donc pas se connecter à une boîte Proton.
 
-No domain, no Internet. Caddy generates its own local CA and self-signed cert.
-Clients will see a TLS warning until you trust the Caddy CA:
+## Déploiement Netlify (variante TypeScript)
+
+1. **Via l'interface Netlify** (recommandé) : liez ce dépôt à un site Netlify (le build est automatique grâce à `netlify.toml`), puis définissez les variables d'environnement dans *Site settings → Environment variables* (`MCP_AUTH_TOKEN`, `IMAP_*`, `SMTP_*`, `MAIL_FROM`…).
+2. **Ou via la CLI** : créez un `config.json` local (copie remplie de `config.sample.json`) puis lancez `netlify deploy --prod`. Le fichier est embarqué dans la fonction grâce à `included_files` dans `netlify.toml`.
+
+L'endpoint MCP est alors : `https://<votre-site>.netlify.app/mcp`
+
+## Déploiement OVH (ou tout mutualisé Apache/PHP ≥ 8.1)
+
+1. Téléversez par FTP le **contenu** du dossier `php-ovh/` (à la racine du site ou dans un sous-dossier, par ex. `/mcp-mail/`).
+2. Sur le serveur, copiez `config.sample.php` en `config.local.php` et remplissez-le (token, identifiants IMAP/SMTP).
+3. Vérifiez que la version PHP du site est ≥ 8.1 (espace client OVH → *Hébergement → Informations générales → Configuration PHP*).
+
+L'endpoint MCP est : `https://votre-domaine.tld/mcp` (URL réécrite par `.htaccess`), ou `https://votre-domaine.tld/mcp.php` si la réécriture d'URL est inactive. Ajoutez le sous-dossier au besoin.
+
+Les fichiers `.htaccess` fournis protègent `config.local.php` et l'intégralité de `lib/` contre tout accès direct par le web.
+
+## Connexion à Claude
+
+Le serveur accepte le token de deux manières : en-tête `Authorization: Bearer <token>` ou paramètre d'URL `?token=<token>`.
+
+1. **claude.ai et Claude Desktop** — *Paramètres → Connecteurs → Ajouter un connecteur personnalisé*, avec l'URL :
+
+   ```
+   https://votre-domaine.tld/mcp?token=VOTRE_TOKEN
+   ```
+
+   Les connecteurs personnalisés ne permettent pas d'ajouter d'en-têtes HTTP, d'où le token dans l'URL.
+
+2. **Claude Code** :
+
+   ```bash
+   claude mcp add --transport http mail https://votre-domaine.tld/mcp \
+     --header "Authorization: Bearer VOTRE_TOKEN"
+   ```
+
+3. **Anciens clients MCP (stdio uniquement)** — via le pont `mcp-remote` :
+
+   ```bash
+   npx mcp-remote https://votre-domaine.tld/mcp \
+     --header "Authorization: Bearer VOTRE_TOKEN"
+   ```
+
+## Test manuel
 
 ```bash
-make up-lan
-docker compose exec caddy caddy trust   # installs CA on the host machine
-```
+# Page d'accueil (healthcheck)
+curl -s https://votre-domaine.tld/
 
-Set `MCP_LAN_HOST` in `.env` to control the bind address:
-- `:443` — all interfaces, port 443 (default)
-- `mcp.local` — local hostname (must resolve to the server IP)
-- `192.168.1.10:443` — specific LAN IP
+# Sans token -> 401
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://votre-domaine.tld/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
 
-```
-   LAN                        Docker network "internal"
-        │                    ┌──────────────────┐    ┌───────────────┐
-        ├── 443 ────────────►│  caddy (LAN-TLS) │───►│  mcp-mail     │
-                             │  tls internal    │    │  Express :3000│
-                             └──────────────────┘    └───────────────┘
-```
-
-### LAN HTTP mode
-
-Simplest option — no reverse proxy, no TLS. Port `LAN_HTTP_PORT` (default 3000)
-is published directly from the container. The MCP bearer token still enforces
-authentication.
-
-```
-   LAN                        Docker
-        │                    ┌───────────────┐
-        ├── :3000 ──────────►│  mcp-mail     │
-                             │  Express :3000│
-                             └───────────────┘
-```
-
-### Endpoints
-
-| Endpoint        | Auth   | Purpose                                                |
-|-----------------|--------|--------------------------------------------------------|
-| `GET  /healthz` | none   | Liveness probe used by Caddy and Docker healthcheck     |
-| `POST /mcp`     | Bearer | Client → server JSON-RPC. New session on `initialize`. |
-| `GET  /mcp`     | Bearer | Long-lived SSE stream for server → client notifications |
-| `DELETE /mcp`   | Bearer | Explicit session termination                           |
-
-All `/mcp*` requests must include `Authorization: Bearer $MCP_AUTH_TOKEN`.
-Sessions are tracked via the `mcp-session-id` response/request header.
-
-### Connecting clients
-
-#### MCP Inspector
-
-```bash
-npx @modelcontextprotocol/inspector
-# Transport: Streamable HTTP
-# URL: https://mcp.example.com/mcp
-# Header: Authorization=Bearer <MCP_AUTH_TOKEN>
-```
-
-#### Claude Desktop (via mcp-remote bridge)
-
-Claude Desktop currently speaks stdio only, so use `mcp-remote` as a
-local-to-HTTP bridge:
-
-```json
-{
-  "mcpServers": {
-    "mail": {
-      "command": "npx",
-      "args": [
-        "mcp-remote",
-        "https://mcp.example.com/mcp",
-        "--header",
-        "Authorization: Bearer YOUR_MCP_AUTH_TOKEN"
-      ]
-    }
-  }
-}
-```
-
-#### Manual smoke test
-
-```bash
-TOKEN=...   # MCP_AUTH_TOKEN
-
-# 1. Health (no auth)
-curl -fsS https://mcp.example.com/healthz
-
-# 2. Auth required
-curl -i -X POST https://mcp.example.com/mcp        # → 401
-
-# 3. Initialize and capture mcp-session-id
-curl -i -X POST https://mcp.example.com/mcp \
-  -H "Authorization: Bearer $TOKEN" \
+# Avec token -> réponse initialize
+curl -s -X POST https://votre-domaine.tld/mcp \
+  -H "Authorization: Bearer VOTRE_TOKEN" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize",
-       "params":{"protocolVersion":"2025-03-26","capabilities":{},
-       "clientInfo":{"name":"curl","version":"0"}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
 ```
 
-### Environment variables
+## Sécurité
 
-| Variable                       | Default     | Required | Purpose                                    |
-|--------------------------------|-------------|----------|--------------------------------------------|
-| `MAIL_TOKEN`                   | —           | yes      | Infomaniak Mail API bearer                 |
-| `MCP_AUTH_TOKEN`               | —           | yes ≥32  | Bearer enforced on `/mcp*`                 |
-| `MCP_HTTP_PORT`                | `3000`      | no       | Internal Express port                      |
-| `MCP_HTTP_HOST`                | `0.0.0.0`   | no       | Bind address inside container              |
-| `MCP_ALLOWED_ORIGINS`          | (empty)     | no       | CSV CORS allowlist (`*` rejected in prod)  |
-| `MCP_RATE_LIMIT_PER_MIN`       | `60`        | no       | Per-IP req/min on `/mcp`                   |
-| `MCP_SEND_RATE_LIMIT_PER_MIN`  | `5`         | no       | Strict cap on `mail_send_email`            |
-| `MCP_TRUST_PROXY`              | `1`         | no       | `app.set('trust proxy', N)` (1 = Caddy)    |
-| `LOG_LEVEL`                    | `info`      | no       | pino log level                             |
-| `MCP_PUBLIC_DOMAIN`            | —           | yes      | Public hostname served by Caddy            |
-| `ACME_EMAIL`                   | —           | yes      | Contact for Let's Encrypt                  |
+- **Le token donne un accès complet à la boîte mail** (lecture et envoi). Traitez-le comme un mot de passe.
+- **HTTPS obligatoire** : ne déployez jamais l'endpoint en HTTP clair.
+- Le token passé en query string (`?token=…`) apparaît dans les logs du serveur web : **préférez l'en-tête `Authorization`** dès que le client le permet, et réservez la query aux connecteurs claude.ai/Desktop qui n'offrent pas d'autre option.
+- **Faites tourner le token** régulièrement (régénérez avec `openssl rand -hex 32`, mettez à jour la config et les connecteurs).
 
-### Security notes
-
-- `MCP_AUTH_TOKEN` grants the same access as `MAIL_TOKEN` — anyone holding
-  it can read and send mail from the configured Infomaniak mailbox. Treat
-  both as production secrets and rotate regularly.
-- The `mail_send_email` tool is rate-limited and audit-logged
-  (recipient/subject hashes only, no PII).
-- Container runs as non-root user `mcp` with `tini` as PID 1 for clean
-  signal handling.
-- TLS is terminated by Caddy with HSTS preload, X-Frame-Options DENY,
-  Referrer-Policy no-referrer, and modern protocols only.
-- For LAN-only deployments, restrict access at the firewall or add an
-  IP allowlist in the Caddyfile (`@allowed remote_ip ...`).
-
-## Local development (stdio is no longer the default)
-
-The server now requires HTTP. To run locally without Docker:
+## Développement local
 
 ```bash
 npm install
-npm run build
-MAIL_TOKEN=... MCP_AUTH_TOKEN=$(openssl rand -hex 32) \
-  MCP_HTTP_HOST=127.0.0.1 npm start
+npm run build        # typecheck de la variante TypeScript
+npm run test:smoke   # démarre les fakes IMAP/SMTP + teste les DEUX variantes
 ```
 
-Then point `@modelcontextprotocol/inspector` at `http://127.0.0.1:3000/mcp`.
+Le smoke test (`test/smoke.mjs`) démarre un faux serveur IMAP et un faux serveur SMTP (Node pur, sans dépendance), lance la variante PHP avec `php -S` et exerce la variante TypeScript via son handler Netlify, puis vérifie les 6 outils de bout en bout. PHP ≥ 8.1 est requis en local pour la partie PHP.
 
-## Build
+## Licence
 
-Docker build:
-
-```bash
-docker compose build
-```
-
-## License
-
-This MCP server is licensed under the MIT License.
+MIT.

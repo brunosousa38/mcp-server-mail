@@ -8,7 +8,8 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:smoke": "node test/smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -23,6 +24,7 @@
     "@types/mailparser": "^3.4.6",
     "@types/node": "^22.20.0",
     "@types/nodemailer": "^8.0.1",
+    "tsx": "^4.23.0",
     "typescript": "^5.9.3"
   }
 }
