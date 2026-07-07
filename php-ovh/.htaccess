@@ -1,0 +1,21 @@
+# Serveur MCP Mail (IMAP/SMTP) — variante PHP pour hébergement mutualisé OVH.
+
+# Transmettre l'en-tête Authorization à PHP (souvent perdu en CGI/FastCGI)
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    # Interdire l'accès direct au dossier lib/ (règle relative : fonctionne
+    # aussi quand le dossier est déployé en sous-répertoire)
+    RewriteRule ^lib/ - [F,L]
+    # URL propre : /mcp -> mcp.php
+    RewriteRule ^mcp$ mcp.php [L,QSA]
+</IfModule>
+
+# Interdire l'accès direct aux fichiers de configuration
+<Files "config.local.php">
+    Require all denied
+</Files>
+<Files "config.sample.php">
+    Require all denied
+</Files>

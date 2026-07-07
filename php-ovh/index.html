@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Serveur MCP Mail (IMAP/SMTP) — variante PHP</title>
+<style>
+    :root { color-scheme: light dark; }
+    body {
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        max-width: 42rem;
+        margin: 3rem auto;
+        padding: 0 1.25rem;
+        line-height: 1.6;
+        color: #1f2937;
+        background: #f9fafb;
+    }
+    h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+    .sub { color: #6b7280; margin-top: 0; }
+    code {
+        background: #e5e7eb;
+        border-radius: 4px;
+        padding: 0.1em 0.4em;
+        font-size: 0.92em;
+    }
+    .card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+        margin: 1.25rem 0;
+    }
+    .card h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+    ul { margin: 0.4rem 0; padding-left: 1.3rem; }
+    footer { color: #9ca3af; font-size: 0.85rem; margin-top: 2rem; }
+    @media (prefers-color-scheme: dark) {
+        body { color: #e5e7eb; background: #111827; }
+        .card { background: #1f2937; border-color: #374151; }
+        code { background: #374151; }
+        .sub { color: #9ca3af; }
+        footer { color: #6b7280; }
+    }
+</style>
+</head>
+<body>
+<h1>Serveur MCP Mail (IMAP/SMTP)</h1>
+<p class="sub">Variante PHP pur, autonome — conçue pour un hébergement mutualisé (OVH, etc.).</p>
+
+<div class="card">
+    <h2>Endpoint MCP</h2>
+    <p>
+        Le serveur répond en JSON-RPC 2.0 (transport MCP « Streamable HTTP », réponses JSON simples)
+        sur : <code>POST /mcp</code> — ou <code>POST /mcp.php</code> si la réécriture d'URL est inactive.
+    </p>
+</div>
+
+<div class="card">
+    <h2>Authentification</h2>
+    <p>Toutes les requêtes exigent le token configuré dans <code>config.local.php</code> :</p>
+    <ul>
+        <li>en-tête <code>Authorization: Bearer &lt;token&gt;</code> ;</li>
+        <li>ou paramètre d'URL <code>?token=&lt;token&gt;</code> (pour les connecteurs
+            qui ne permettent pas d'en-têtes personnalisés).</li>
+    </ul>
+</div>
+
+<div class="card">
+    <h2>Outils exposés</h2>
+    <ul>
+        <li><code>list_folders</code> — dossiers IMAP avec compteurs ;</li>
+        <li><code>list_emails</code> — derniers emails d'un dossier ;</li>
+        <li><code>read_email</code> — lecture complète d'un email (texte + pièces jointes) ;</li>
+        <li><code>search_emails</code> — recherche (expéditeur, sujet, dates, non lus…) ;</li>
+        <li><code>send_email</code> — envoi SMTP (texte brut, réponse dans un fil possible) ;</li>
+        <li><code>mark_email</code> — marquer lu / non lu.</li>
+    </ul>
+</div>
+
+<div class="card">
+    <h2>Installation</h2>
+    <p>
+        Copiez <code>config.sample.php</code> en <code>config.local.php</code>, renseignez le token
+        (<code>openssl rand -hex 32</code>) et vos identifiants IMAP/SMTP, puis téléversez le dossier
+        par FTP. Consultez le README du projet pour le détail.
+    </p>
+</div>
+
+<footer>Serveur MCP Mail — variante PHP · aucune dépendance, PHP ≥ 8.1</footer>
+</body>
+</html>
