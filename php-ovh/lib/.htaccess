@@ -1,0 +1,3 @@
+# Aucun fichier de lib/ ne doit être servi directement par le serveur web
+# (protection indépendante de mod_rewrite, cf. ../.htaccess).
+Require all denied

@@ -332,9 +332,23 @@ final class SmtpClient
     /** Extrait l'adresse pure d'une chaîne éventuellement au format "Nom <adresse>". */
     public static function extractAddress(string $addr): string
     {
+        // Rejet des CR/LF sur l'entrée brute, avant toute extraction : sinon
+        // "a@b\r\nRCPT TO:<x@evil>" fournirait une adresse extraite "propre".
+        if (preg_match('/[\r\n]/', $addr)) {
+            throw new SmtpException('Adresse email invalide : ' . self::sanitizeHeaderValue($addr));
+        }
         $addr = trim($addr);
         if (preg_match('/<([^>]+)>/', $addr, $m)) {
-            return trim($m[1]);
+            $addr = trim($m[1]);
+        }
+        // Adresse injectée telle quelle dans MAIL FROM / RCPT TO : tout
+        // caractère de contrôle ou blanc permettrait une injection de
+        // commande SMTP (ex. "a@b\r\nRCPT TO:<x@evil>").
+        if ($addr === ''
+            || preg_match('/[\x00-\x20\x7f<>"(),;:\\\\]/', $addr)
+            || substr_count($addr, '@') !== 1
+        ) {
+            throw new SmtpException('Adresse email invalide : ' . self::sanitizeHeaderValue($addr));
         }
         return $addr;
     }
