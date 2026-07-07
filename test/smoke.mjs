@@ -179,6 +179,57 @@ function checkSmtpMessage(prefix, msg, expected) {
     check(`${prefix}: corps décodable (accents corrects)`, bodyOk, body);
 }
 
+/** Extrait et décode le base64 de la (première) pièce jointe d'un message MIME brut. */
+function extractAttachmentBase64(rawData) {
+    const dispIdx = rawData.indexOf("Content-Disposition: attachment");
+    if (dispIdx === -1) return null;
+    const blank = rawData.indexOf("\r\n\r\n", dispIdx);
+    if (blank === -1) return null;
+    const b64 = rawData.slice(blank + 4).split("\r\n--")[0];
+    return Buffer.from(b64.replace(/\s+/g, ""), "base64");
+}
+
+/** Assertions sur un envoi multipart : texte+HTML (alternative) + pièce jointe (mixed). */
+function checkHtmlAttachment(prefix, msg, expected) {
+    check(`${prefix}: le fake SMTP a reçu le message`, Boolean(msg), "message manquant");
+    if (!msg) return;
+    const raw = msg.data;
+    check(`${prefix}: multipart/mixed (pièce jointe)`, raw.includes("multipart/mixed"), "");
+    check(
+        `${prefix}: multipart/alternative (texte + HTML)`,
+        raw.includes("multipart/alternative"),
+        "",
+    );
+    check(`${prefix}: partie text/html présente`, raw.includes("text/html"), "");
+    check(
+        `${prefix}: marqueur HTML présent dans le corps`,
+        raw.includes(expected.htmlMarker),
+        expected.htmlMarker,
+    );
+    check(
+        `${prefix}: en-tête Content-Disposition: attachment`,
+        raw.includes("Content-Disposition: attachment"),
+        "",
+    );
+    check(
+        `${prefix}: nom de fichier présent`,
+        raw.includes(expected.filenameNeedle),
+        expected.filenameNeedle,
+    );
+    const decoded = extractAttachmentBase64(raw);
+    check(
+        `${prefix}: contenu de la PJ décodable et exact`,
+        decoded !== null && decoded.toString("utf8") === expected.attachmentContent,
+        decoded ? decoded.toString("utf8").slice(0, 48) : "null",
+    );
+}
+
+/** Contenu partagé pour le test d'envoi HTML + pièce jointe. */
+const HTML_BODY = "<p>Ceci est un <strong>message HTML</strong>.</p>";
+const HTML_MARKER = "<strong>message HTML</strong>";
+const ATTACHMENT_TEXT = "Rapport trimestriel — café ☕";
+const ATTACHMENT_B64 = Buffer.from(ATTACHMENT_TEXT, "utf8").toString("base64");
+
 function waitForExit(child) {
     return new Promise((resolve) => {
         child.on("exit", (code) => resolve(code));
@@ -452,6 +503,36 @@ return [
             inReplyTo: "<msg-101@example.com>",
             bodyMarkers: ["été", "cœur", "\n.ligne commençant par un point"],
         });
+
+        // send_email avec corps HTML + pièce jointe -----------------------------
+        const smtpBeforeHtml = smtpMessages.length;
+        res = await post(
+            toolCall("send_email", {
+                to: "dest@example.net",
+                subject: "Rapport HTML",
+                body: "Version texte de secours.",
+                html: HTML_BODY,
+                attachments: [
+                    {
+                        filename: "rapport.txt",
+                        content: ATTACHMENT_B64,
+                        content_type: "text/plain",
+                    },
+                ],
+            }),
+        );
+        body = await res.json();
+        data = toolResult(body);
+        check(
+            "php: send_email (HTML+PJ) -> status sent",
+            !isToolError(body) && data?.status === "sent",
+            JSON.stringify(body),
+        );
+        checkHtmlAttachment("php: send_email HTML", smtpMessages[smtpBeforeHtml], {
+            htmlMarker: HTML_MARKER,
+            filenameNeedle: "rapport.txt",
+            attachmentContent: ATTACHMENT_TEXT,
+        });
     } finally {
         php.kill("SIGTERM");
         await waitForExit(php);
@@ -648,8 +729,8 @@ async function runTsSuite(imapPort, smtpPort, smtpMessages) {
         JSON.stringify(body),
     );
     check(
-        "ts: le fake SMTP a reçu 1 message",
-        smtpMessages.length === smtpBefore + 1,
+        "ts: le fake SMTP a reçu 2 messages (texte, puis HTML+PJ)",
+        smtpMessages.length === smtpBefore + 2,
         `messages=${smtpMessages.length}`,
     );
     checkSmtpMessage("ts: send_email", smtpMessages[smtpBefore], {
@@ -663,6 +744,19 @@ async function runTsSuite(imapPort, smtpPort, smtpMessages) {
         subject: "Réponse : réunion d'été",
         inReplyTo: "<msg-101@example.com>",
         bodyMarkers: ["été", "cœur", "\n.ligne commençant par un point"],
+    });
+
+    // send_email avec corps HTML + pièce jointe
+    body = get("send-email-html").body;
+    check(
+        "ts: send_email (HTML+PJ) -> messageId",
+        !isToolError(body) && typeof toolResult(body)?.messageId === "string",
+        JSON.stringify(body),
+    );
+    checkHtmlAttachment("ts: send_email HTML", smtpMessages[smtpBefore + 1], {
+        htmlMarker: HTML_MARKER,
+        filenameNeedle: "rapport.txt",
+        attachmentContent: ATTACHMENT_TEXT,
     });
 }
 

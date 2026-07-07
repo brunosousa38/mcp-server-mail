@@ -270,12 +270,18 @@ final class SmtpClient
     // ------------------------------------------------------------------
 
     /**
-     * Construit le message RFC 5322 complet (en-têtes + corps quoted-printable),
-     * fins de ligne CRLF, dot-stuffing appliqué.
+     * Construit le message RFC 5322 complet, fins de ligne CRLF, dot-stuffing
+     * appliqué. Selon les champs fournis :
+     *   - body seul               → text/plain
+     *   - html seul               → text/html
+     *   - body + html             → multipart/alternative
+     *   - + attachments           → multipart/mixed encapsulant ce qui précède
      *
      * @param array{
      *   from_email:string, from_name:string, to:list<string>, cc:list<string>,
-     *   bcc:list<string>, subject:string, body:string, in_reply_to?:?string
+     *   bcc:list<string>, subject:string, body:?string, html?:?string,
+     *   in_reply_to?:?string,
+     *   attachments?:list<array{filename:string, content_b64:string, content_type:string}>
      * } $message
      * @return array{0:string,1:string} [données prêtes pour DATA, Message-ID généré]
      */
@@ -313,20 +319,127 @@ final class SmtpClient
         }
 
         $headers[] = 'MIME-Version: 1.0';
-        $headers[] = 'Content-Type: text/plain; charset=utf-8';
-        $headers[] = 'Content-Transfer-Encoding: quoted-printable';
 
-        // Corps : fins de ligne normalisées en CRLF puis quoted-printable
-        // (quoted_printable_encode préserve les CRLF comme sauts de ligne durs).
-        $body = str_replace(["\r\n", "\r"], "\n", $message['body']);
-        $body = str_replace("\n", "\r\n", $body);
-        $body = quoted_printable_encode($body);
+        // Corps (text/plain, text/html ou multipart/alternative).
+        [$bodyHeaders, $bodyContent] = self::buildBodyPart(
+            $message['body'] ?? null,
+            $message['html'] ?? null,
+        );
 
-        $data = implode("\r\n", $headers) . "\r\n\r\n" . $body;
+        $attachments = $message['attachments'] ?? [];
+        if ($attachments === []) {
+            $data = implode("\r\n", array_merge($headers, $bodyHeaders))
+                . "\r\n\r\n" . $bodyContent;
+        } else {
+            $boundary = 'mixed_' . bin2hex(random_bytes(12));
+            $headers[] = 'Content-Type: multipart/mixed; boundary="' . $boundary . '"';
+
+            $parts = [implode("\r\n", $bodyHeaders) . "\r\n\r\n" . $bodyContent];
+            foreach ($attachments as $att) {
+                $parts[] = self::buildAttachmentPart($att);
+            }
+
+            $mixed = '';
+            foreach ($parts as $part) {
+                $mixed .= '--' . $boundary . "\r\n" . $part . "\r\n";
+            }
+            $mixed .= '--' . $boundary . "--\r\n";
+
+            $data = implode("\r\n", $headers) . "\r\n\r\n" . $mixed;
+        }
+
         // Dot-stuffing : toute ligne commençant par "." est doublée.
         $data = preg_replace('/^\./m', '..', $data) ?? $data;
 
         return [$data, $messageId];
+    }
+
+    /**
+     * Construit la partie « corps » du message.
+     *
+     * @return array{0:list<string>,1:string} [en-têtes de la partie, contenu]
+     */
+    private static function buildBodyPart(?string $text, ?string $html): array
+    {
+        $hasText = $text !== null && $text !== '';
+        $hasHtml = $html !== null && $html !== '';
+
+        if ($hasText && $hasHtml) {
+            $boundary = 'alt_' . bin2hex(random_bytes(12));
+            $textPart = "Content-Type: text/plain; charset=utf-8\r\n"
+                . "Content-Transfer-Encoding: quoted-printable\r\n\r\n"
+                . self::qpBody($text);
+            $htmlPart = "Content-Type: text/html; charset=utf-8\r\n"
+                . "Content-Transfer-Encoding: quoted-printable\r\n\r\n"
+                . self::qpBody($html);
+            $content = '--' . $boundary . "\r\n" . $textPart . "\r\n"
+                . '--' . $boundary . "\r\n" . $htmlPart . "\r\n"
+                . '--' . $boundary . "--\r\n";
+            return [
+                ['Content-Type: multipart/alternative; boundary="' . $boundary . '"'],
+                $content,
+            ];
+        }
+
+        if ($hasHtml) {
+            return [
+                ['Content-Type: text/html; charset=utf-8', 'Content-Transfer-Encoding: quoted-printable'],
+                self::qpBody($html),
+            ];
+        }
+
+        return [
+            ['Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: quoted-printable'],
+            self::qpBody((string) $text),
+        ];
+    }
+
+    /**
+     * Construit une partie MIME de pièce jointe (base64).
+     *
+     * @param array{filename:string, content_b64:string, content_type:string} $att
+     */
+    private static function buildAttachmentPart(array $att): string
+    {
+        $ctype = self::sanitizeHeaderValue($att['content_type']);
+        if ($ctype === '' || !preg_match('#^[\x21-\x7e]+/[\x21-\x7e]+$#', $ctype)) {
+            $ctype = 'application/octet-stream';
+        }
+        $nameParam = self::mimeFilenameParam('name', $att['filename']);
+        $dispParam = self::mimeFilenameParam('filename', $att['filename']);
+
+        // Re-découpage du base64 en lignes de 76 caractères (RFC 2045).
+        $b64 = rtrim(chunk_split($att['content_b64'], 76, "\r\n"));
+
+        $headers = [
+            'Content-Type: ' . $ctype . '; ' . $nameParam,
+            'Content-Transfer-Encoding: base64',
+            'Content-Disposition: attachment; ' . $dispParam,
+        ];
+        return implode("\r\n", $headers) . "\r\n\r\n" . $b64;
+    }
+
+    /**
+     * Rend un paramètre de nom de fichier sûr pour un en-tête MIME. ASCII →
+     * quoted-string échappée ; non-ASCII → RFC 2231 (filename*=UTF-8''…).
+     * Les CR/LF/NUL sont retirés dans tous les cas (anti-injection d'en-tête).
+     */
+    private static function mimeFilenameParam(string $key, string $filename): string
+    {
+        $name = str_replace(["\r", "\n", "\0"], '', $filename);
+        if (!preg_match('/[^\x20-\x7e]/', $name)) {
+            $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], $name);
+            return $key . '="' . $escaped . '"';
+        }
+        return $key . "*=UTF-8''" . rawurlencode($name);
+    }
+
+    /** Normalise les fins de ligne en CRLF puis encode en quoted-printable. */
+    private static function qpBody(string $body): string
+    {
+        $body = str_replace(["\r\n", "\r"], "\n", $body);
+        $body = str_replace("\n", "\r\n", $body);
+        return quoted_printable_encode($body);
     }
 
     /** Extrait l'adresse pure d'une chaîne éventuellement au format "Nom <adresse>". */

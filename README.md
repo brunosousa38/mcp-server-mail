@@ -10,8 +10,27 @@ Un serveur [MCP](https://modelcontextprotocol.io) qui permet à Claude de lire (
 | `list_emails` | Liste les derniers emails d'un dossier (plus récent en premier) : uid, expéditeur, sujet, date, lu/non-lu, taille | `folder` (défaut `INBOX`), `limit` (défaut 20, max 100), `offset` |
 | `read_email` | Lit un email complet par UID : en-têtes, corps texte décodé, métadonnées des pièces jointes | `folder`, `uid` (requis) |
 | `search_emails` | Recherche dans un dossier (critères combinés en ET) | `folder`, `from`, `to`, `subject`, `text`, `since`/`before` (YYYY-MM-DD), `unseen`, `limit` |
-| `send_email` | Envoie un email texte brut via SMTP ; `in_reply_to` permet de répondre dans un fil existant | `to` (requis), `subject` (requis), `body` (requis), `cc`, `bcc`, `in_reply_to` |
+| `send_email` | Envoie un email via SMTP, en texte brut et/ou HTML, avec pièces jointes optionnelles ; `in_reply_to` permet de répondre dans un fil existant | `to` (requis), `subject` (requis), `body` et/ou `html` (au moins un requis), `attachments`, `cc`, `bcc`, `in_reply_to` |
 | `mark_email` | Marque un email comme lu ou non lu | `folder`, `uid` (requis), `seen` (requis) |
+
+### Envoi HTML et pièces jointes (`send_email`)
+
+- **Corps** : fournissez `body` (texte brut), `html` (HTML), ou les deux. Avec les deux, le message est envoyé en `multipart/alternative` (le client mail choisit la version à afficher). Au moins un des deux est requis.
+- **Pièces jointes** : `attachments` est une liste d'objets `{ "filename": "…", "content": "<base64>", "content_type": "…" }`. Le contenu du fichier doit être **encodé en Base64** ; `content_type` est optionnel (défaut `application/octet-stream`). Le message devient alors un `multipart/mixed`.
+
+Exemple d'arguments :
+
+```json
+{
+  "to": "dest@example.com",
+  "subject": "Rapport trimestriel",
+  "html": "<p>Bonjour,<br>Veuillez trouver le rapport <strong>ci-joint</strong>.</p>",
+  "body": "Bonjour, veuillez trouver le rapport ci-joint.",
+  "attachments": [
+    { "filename": "rapport.pdf", "content": "JVBERi0xLjQK…", "content_type": "application/pdf" }
+  ]
+}
+```
 
 ## Configuration
 

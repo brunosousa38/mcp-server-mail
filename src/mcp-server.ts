@@ -175,13 +175,24 @@ export function buildServer(config: AppConfig): McpServer {
 
     server.tool(
         "send_email",
-        "Send a plain-text email via SMTP. To reply within an existing thread, pass in_reply_to with the Message-ID of the original email (see read_email output).",
+        "Send an email via SMTP. Provide body (plain text) and/or html for an HTML message; at least one is required. Optionally attach files via attachments. To reply within an existing thread, pass in_reply_to with the Message-ID of the original email (see read_email output).",
         {
             to: z
                 .string()
                 .describe("Recipient email address(es), comma-separated"),
             subject: z.string().describe("Email subject"),
-            body: z.string().describe("Email body (plain text)"),
+            body: z
+                .string()
+                .describe(
+                    "Plain-text body. Optional if html is provided; sent as the text/plain part.",
+                )
+                .optional(),
+            html: z
+                .string()
+                .describe(
+                    "HTML body. Optional if body is provided. When both are given, they are sent as multipart/alternative.",
+                )
+                .optional(),
             cc: z
                 .string()
                 .describe("CC recipient(s), comma-separated")
@@ -196,17 +207,47 @@ export function buildServer(config: AppConfig): McpServer {
                     "Message-ID of the email being replied to, to keep the thread",
                 )
                 .optional(),
+            attachments: z
+                .array(
+                    z.object({
+                        filename: z
+                            .string()
+                            .describe("File name shown to the recipient"),
+                        content: z
+                            .string()
+                            .describe("File content, Base64-encoded"),
+                        content_type: z
+                            .string()
+                            .describe(
+                                'MIME type, e.g. "application/pdf" (default: application/octet-stream)',
+                            )
+                            .optional(),
+                    }),
+                )
+                .describe("Files to attach to the email")
+                .optional(),
         },
-        async ({to, subject, body, cc, bcc, in_reply_to}) => {
+        async ({to, subject, body, html, cc, bcc, in_reply_to, attachments}) => {
             try {
+                if (!body?.trim() && !html?.trim()) {
+                    throw new Error(
+                        "Provide at least one of 'body' (plain text) or 'html'.",
+                    );
+                }
                 return textResult(
                     await sendEmail(config, {
                         to,
                         subject,
                         body,
+                        html,
                         cc,
                         bcc,
                         inReplyTo: in_reply_to,
+                        attachments: attachments?.map((a) => ({
+                            filename: a.filename,
+                            content: a.content,
+                            contentType: a.content_type,
+                        })),
                     }),
                 );
             } catch (err) {

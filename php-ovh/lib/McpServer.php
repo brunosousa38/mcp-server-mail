@@ -203,7 +203,7 @@ final class McpServer
             ],
             [
                 'name' => 'send_email',
-                'description' => 'Send a plain-text email via SMTP. Use in_reply_to (Message-ID) to reply within an existing thread.',
+                'description' => 'Send an email via SMTP. Provide body (plain text) and/or html for an HTML message; at least one is required. Optionally attach files. Use in_reply_to (Message-ID) to reply within an existing thread.',
                 'inputSchema' => [
                     'type' => 'object',
                     'properties' => [
@@ -217,7 +217,11 @@ final class McpServer
                         ],
                         'body' => [
                             'type' => 'string',
-                            'description' => 'Email body (plain text)',
+                            'description' => 'Plain-text body. Optional if html is provided; sent as the text/plain part.',
+                        ],
+                        'html' => [
+                            'type' => 'string',
+                            'description' => 'HTML body. Optional if body is provided. When both are given, they are sent as multipart/alternative.',
                         ],
                         'cc' => [
                             'type' => 'string',
@@ -231,8 +235,30 @@ final class McpServer
                             'type' => 'string',
                             'description' => 'Message-ID of the email being replied to (sets In-Reply-To and References headers)',
                         ],
+                        'attachments' => [
+                            'type' => 'array',
+                            'description' => 'Files to attach to the email',
+                            'items' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'filename' => [
+                                        'type' => 'string',
+                                        'description' => 'File name shown to the recipient',
+                                    ],
+                                    'content' => [
+                                        'type' => 'string',
+                                        'description' => 'File content, Base64-encoded',
+                                    ],
+                                    'content_type' => [
+                                        'type' => 'string',
+                                        'description' => 'MIME type, e.g. "application/pdf" (default: application/octet-stream)',
+                                    ],
+                                ],
+                                'required' => ['filename', 'content'],
+                            ],
+                        ],
                     ],
-                    'required' => ['to', 'subject', 'body'],
+                    'required' => ['to', 'subject'],
                 ],
             ],
             [
@@ -390,13 +416,18 @@ final class McpServer
     {
         $to = $this->splitAddresses($this->argString($args, 'to', null));
         $subject = $this->argString($args, 'subject', null);
-        $body = $this->argString($args, 'body', null);
+        $body = $this->argString($args, 'body', '');
+        $html = $this->argString($args, 'html', '');
         $cc = $this->splitAddresses($this->argString($args, 'cc', ''));
         $bcc = $this->splitAddresses($this->argString($args, 'bcc', ''));
         $inReplyTo = $this->argString($args, 'in_reply_to', '');
+        $attachments = $this->parseAttachments($args);
 
         if ($to === []) {
             throw new InvalidArgumentException("Invalid params: 'to' must contain at least one recipient address");
+        }
+        if (trim($body) === '' && trim($html) === '') {
+            throw new InvalidArgumentException("Invalid params: provide at least one of 'body' (plain text) or 'html'");
         }
 
         $message = [
@@ -406,8 +437,10 @@ final class McpServer
             'cc' => $cc,
             'bcc' => $bcc,
             'subject' => $subject,
-            'body' => $body,
+            'body' => $body !== '' ? $body : null,
+            'html' => $html !== '' ? $html : null,
             'in_reply_to' => $inReplyTo !== '' ? $inReplyTo : null,
+            'attachments' => $attachments,
         ];
 
         return function () use ($message): array {
@@ -511,6 +544,57 @@ final class McpServer
             return false;
         }
         throw new InvalidArgumentException("Invalid params: argument '$key' must be a boolean");
+    }
+
+    /**
+     * Valide et normalise l'argument `attachments`.
+     *
+     * @return list<array{filename:string, content_b64:string, content_type:string}>
+     */
+    private function parseAttachments(array $args): array
+    {
+        if (!array_key_exists('attachments', $args)
+            || $args['attachments'] === null
+            || $args['attachments'] === []
+        ) {
+            return [];
+        }
+        $raw = $args['attachments'];
+        if (!is_array($raw) || !array_is_list($raw)) {
+            throw new InvalidArgumentException("Invalid params: 'attachments' must be an array of objects");
+        }
+
+        $out = [];
+        foreach ($raw as $i => $att) {
+            if (!is_array($att)) {
+                throw new InvalidArgumentException("Invalid params: attachments[$i] must be an object");
+            }
+            $filename = $att['filename'] ?? '';
+            if (!is_string($filename) || trim($filename) === '') {
+                throw new InvalidArgumentException("Invalid params: attachments[$i].filename is required");
+            }
+            $content = $att['content'] ?? '';
+            if (!is_string($content) || $content === '') {
+                throw new InvalidArgumentException("Invalid params: attachments[$i].content (Base64) is required");
+            }
+            // Base64 possiblement transmis avec des retours à la ligne : on les
+            // retire puis on valide en mode strict (rejet des caractères hors alphabet).
+            $clean = preg_replace('/\s+/', '', $content) ?? '';
+            if ($clean === '' || base64_decode($clean, true) === false) {
+                throw new InvalidArgumentException("Invalid params: attachments[$i].content is not valid Base64");
+            }
+            $ctype = $att['content_type'] ?? '';
+            if (!is_string($ctype)) {
+                throw new InvalidArgumentException("Invalid params: attachments[$i].content_type must be a string");
+            }
+
+            $out[] = [
+                'filename' => $filename,
+                'content_b64' => $clean,
+                'content_type' => trim($ctype),
+            ];
+        }
+        return $out;
     }
 
     private function argDate(array $args, string $key): string

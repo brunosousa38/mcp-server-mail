@@ -153,6 +153,25 @@ async function main(): Promise<void> {
             in_reply_to: "<msg-101@example.com>",
         }),
     );
+    await post(
+        "send-email-html",
+        toolCall("send_email", {
+            to: "ts-dest@example.net",
+            subject: "Rapport HTML",
+            body: "Version texte de secours.",
+            html: "<p>Ceci est un <strong>message HTML</strong>.</p>",
+            attachments: [
+                {
+                    filename: "rapport.txt",
+                    content: Buffer.from(
+                        "Rapport trimestriel — café ☕",
+                        "utf8",
+                    ).toString("base64"),
+                    content_type: "text/plain",
+                },
+            ],
+        }),
+    );
 
     process.stdout.write("__SMOKE_RESULTS__" + JSON.stringify(results) + "\n");
     process.exit(0);
